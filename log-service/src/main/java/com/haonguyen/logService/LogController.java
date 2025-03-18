@@ -14,6 +14,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -21,7 +23,7 @@ import java.util.Optional;
 @RestController
 public class LogController {
     private static final int MIN_TAKE = 0;
-    private static final int MAX_TAKE = 5000;
+    private static final int MAX_TAKE = 1000000;
     @Autowired
     private Authenticator authenticator;
 

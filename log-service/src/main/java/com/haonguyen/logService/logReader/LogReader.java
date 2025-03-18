@@ -3,15 +3,18 @@ package com.haonguyen.logService.logReader;
 import com.haonguyen.logService.exception.InvalidFilePathException;
 import com.haonguyen.logService.json.LogResponse;
 import com.haonguyen.logService.logReader.rule.LogRule;
-import com.haonguyen.logService.logReader.rule.LogTextContainRule;
 import lombok.Builder;
 import lombok.Getter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -27,22 +30,30 @@ public class LogReader {
 
     public LogResponse readLogs(Path filePath, int take, List<LogRule> rules)
             throws ExecutionException, InterruptedException {
-        BlockingQueue<WorkUnit> workQueue = new LinkedBlockingQueue<>(config.getQueueSize());
-        Thread lineReaderThread = createLineReaderThread(filePath, take, workQueue);
+        if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
+            throw new InvalidFilePathException("Invalid File");
 
-        ExecutorService executorService = Executors.newFixedThreadPool(config.getNumThreads());
+        BlockingQueue<Chunk> chunkQueue = new LinkedBlockingQueue<>(config.getQueueSize());
+        Thread chunker = createFileChunkerThread(filePath, config.getChunkSize(), chunkQueue);
+
         List<WorkUnit> output = new ArrayList<>();
-        List<Future<Void>> lineProcessorThreads = createLineProcessorThreads(executorService, workQueue, output, rules);
+        ExecutorService executorService = Executors.newFixedThreadPool(config.getNumThreads());
+        List<Future<Void>> chunkProcessors = createChunkProcessorThreads(
+                filePath,
+                executorService,
+                chunkQueue,
+                output,
+                rules);
 
-        lineReaderThread.start();
-        for (Future<Void> processor : lineProcessorThreads) {
-            processor.get();
+        chunker.start();
+        for (Future<Void> future : chunkProcessors) {
+           future.get();
         }
         executorService.shutdown();
 
         Collection<String> lines = output
                 .stream()
-                .sorted(Comparator.comparingInt(WorkUnit::getOrder))
+                .sorted((a, b) -> Long.compare(a.chunk.getPtrStart(), b.chunk.getPtrStart()) * -1)
                 .map(WorkUnit::getLines)
                 .flatMap(Collection::stream)
                 .limit(take)
@@ -51,62 +62,58 @@ public class LogReader {
         return LogResponse.builder().logs(lines).build();
     }
 
-    private Thread createLineReaderThread(Path filePath, int take, BlockingQueue<WorkUnit> workQueue) {
-        if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
-            throw new InvalidFilePathException("Invalid File");
-
+    private Thread createFileChunkerThread(Path filePath, int chunkSize, BlockingQueue<Chunk> chunkQueue) {
         return new Thread(() -> {
             try (RandomAccessFile file = new RandomAccessFile(filePath.toFile(), "r")) {
-                long ptr = file.length() - 1;
-                int order = 0;
-                int totalLines = 0;
-
-                while (ptr >= 0 && totalLines <= take) {
-                    Lines lines = ReverseLineReader.readNLines(file, ptr, config.getBatchSize());
-                    workQueue.put(WorkUnit.builder()
-                            .order(order++)
-                            .lines(lines.getLines())
-                            .isEOF(false)
-                            .build());
-
-                    ptr = lines.getPtr();
-                    totalLines += lines.getLines().size();
+                long ptr = file.length()-1;
+                while (ptr >= 0) {
+                    long end = Math.max(ptr-chunkSize, 0);
+                    end = ReverseLineReader.snapOnNewline(file, end);
+                    chunkQueue.put(Chunk.builder().ptrStart(ptr).ptrEnd(end).build());
+                    ptr = end - 1;
                 }
-
                 for (int i = 0; i < config.getNumThreads(); i++)
-                    workQueue.put(WorkUnit.builder().isEOF(true).build());
+                    chunkQueue.put(Chunk.builder().isEOF(true).build());
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         });
     }
 
-    private List<Future<Void>> createLineProcessorThreads(
+    private List<Future<Void>> createChunkProcessorThreads(
+            Path filePath,
             ExecutorService executorService,
-            BlockingQueue<WorkUnit> workQueue,
+            BlockingQueue<Chunk> chunkQueue,
             Collection<WorkUnit> output,
             List<LogRule> rules) {
         return IntStream.range(0, config.getNumThreads())
                 .mapToObj(i -> (Future<Void>) executorService.submit(() -> {
-                    while (true) {
-                        try {
-                            WorkUnit work = workQueue.take();
+                    try (RandomAccessFile file = new RandomAccessFile(filePath.toFile(), "r")) {
+                        while (true) {
+                            try {
+                                Chunk chunk = chunkQueue.take();
+                                if (chunk.isEOF()) {
+                                    break;
+                                }
 
-                            if (work.isEOF()) {
+                                List<String> lines = new ArrayList<>();
+                                long ptr = chunk.getPtrStart();
+                                while (ptr > chunk.getPtrEnd()) {
+                                    Lines ls = ReverseLineReader.readNLines(file, ptr, config.getBatchSize());
+                                    lines.addAll(ls.getLines()
+                                            .stream()
+                                            .filter(l -> rules.stream().allMatch(r -> r.isMatched(l)))
+                                            .collect(Collectors.toList()));
+                                    ptr = ls.getPtr();
+                                }
+
+                                output.add(WorkUnit.builder().lines(lines).chunk(chunk).build());
+                            } catch (InterruptedException e) {
                                 break;
                             }
-
-                            output.add(WorkUnit
-                                    .builder()
-                                    .lines(work.getLines()
-                                            .stream()
-                                            .filter((s) -> rules.stream().allMatch(r -> r.isMatched(s)))
-                                            .collect(Collectors.toList()))
-                                    .order(work.getOrder())
-                                    .build());
-                        } catch (InterruptedException e) {
-                            break;
                         }
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
                     }
                 }))
                 .collect(Collectors.toList());
@@ -118,7 +125,16 @@ public class LogReader {
         private Collection<String> lines;
 
         @Getter
-        private int order;
+        private Chunk chunk;
+    }
+
+    @Builder
+    private static class Chunk {
+        @Getter
+        private long ptrStart;
+
+        @Getter
+        private long ptrEnd;
 
         @Getter
         @Builder.Default

@@ -44,4 +44,15 @@ public class ReverseLineReader {
                 .ptr(ptr)
                 .build();
     }
+
+    public static long snapOnNewline(RandomAccessFile file, long ptr) throws IOException {
+        while (ptr >= 0) {
+            file.seek(ptr);
+            if ((char) file.read() == '\n') {
+                break;
+            }
+            ptr--;
+        }
+        return ptr;
+    }
 }

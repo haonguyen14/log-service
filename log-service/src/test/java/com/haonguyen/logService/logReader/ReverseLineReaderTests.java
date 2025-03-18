@@ -74,6 +74,33 @@ public class ReverseLineReaderTests {
         }
     }
 
+    @Test
+    public void snapOnNewline_inMiddle_snapOnFarLeftNewline() throws IOException {
+        File file = createFile("snapOnNewLineA", "line1\nline2aaaaaaaaa\nline3");
+
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
+            assertEquals(5, ReverseLineReader.snapOnNewline(randomAccessFile, 9));
+        }
+    }
+
+    @Test
+    public void snapOnNewline_atNewline_snapOnCurrentPtr() throws IOException {
+        File file = createFile("snapOnNewLineB", "line1\nline2aaaaaaaaa\nline3");
+
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
+            assertEquals(5, ReverseLineReader.snapOnNewline(randomAccessFile, 5));
+        }
+    }
+
+    @Test
+    public void snapOnNewline_inMiddleLastLine_returnNegative1() throws IOException {
+        File file = createFile("snapOnNewLineC", "line1\nline2aaaaaaaaa\nline3");
+
+        try (RandomAccessFile randomAccessFile = new RandomAccessFile(file, "r")) {
+            assertEquals(-1, ReverseLineReader.snapOnNewline(randomAccessFile, 2));
+        }
+    }
+
     private static File createFile(String fileName, String content) throws IOException {
         File file = new File(tempDir, fileName);
         try (FileWriter writer = new FileWriter(file)) {

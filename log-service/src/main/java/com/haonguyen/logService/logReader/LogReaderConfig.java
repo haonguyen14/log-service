@@ -14,6 +14,10 @@ public class LogReaderConfig {
     @Getter
     private int batchSize;
 
+    @Value("${logReader.chunkSize}")
+    @Getter
+    private int chunkSize;
+
     @Value("${logReader.numThreads}")
     @Getter
     private int numThreads;
