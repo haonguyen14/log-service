@@ -23,7 +23,7 @@ import java.util.Optional;
 @RestController
 public class LogController {
     private static final int MIN_TAKE = 0;
-    private static final int MAX_TAKE = 1000000;
+    private static final int MAX_TAKE = Integer.MAX_VALUE;
     @Autowired
     private Authenticator authenticator;
 
@@ -50,7 +50,7 @@ public class LogController {
             rules.add(new LogTextIsNotEmptyRule());
             if (contains != null && !contains.isEmpty()) rules.add(new LogTextContainRule(contains));
 
-            return logReader.readLogs(filePath, take.isPresent() ? take.get() : MAX_TAKE, rules);
+            return logReader.readLogs(filePath, ptr, take.isPresent() ? take.get() : MAX_TAKE, rules);
         } catch (InvalidFilePathException | InvalidParameterException e) {
           throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         } catch (Exception e) {

@@ -8,8 +8,6 @@ import lombok.Getter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,16 +25,14 @@ public class LogReader {
         this.config = config;
     }
 
-    public LogResponse readLogs(Path filePath, int take, List<LogRule> rules)
-            throws ExecutionException, InterruptedException {
+    public LogResponse readLogs(Path filePath, Optional<Long> ptr, int take, List<LogRule> rules) {
         if (!Files.exists(filePath) || !Files.isRegularFile(filePath))
             throw new InvalidFilePathException("Invalid File");
 
         BlockingQueue<Chunk> chunkQueue = new LinkedBlockingQueue<>(config.getQueueSize());
-        Thread chunker = createFileChunkerThread(filePath, config.getChunkSize(), chunkQueue);
+        Thread chunker = createFileChunkerThread(filePath, ptr, config.getChunkSize(), chunkQueue);
 
         ConcurrentMap<Long, WorkUnit> checkoutLine = new ConcurrentHashMap<>();
-
         ExecutorService executorService = Executors.newFixedThreadPool(config.getNumThreads());
         AtomicBoolean shouldStop = new AtomicBoolean(false);
         List<Future<Void>> chunkProcessors = createChunkProcessorThreads(
@@ -50,10 +46,14 @@ public class LogReader {
         chunker.start();
 
         long verifyingChunkId = 0;
+        long nextChunkPtr = -1;
         Collection<String> output = new ArrayList<>();
         while (output.size() <= take) {
             if (checkoutLine.containsKey(verifyingChunkId) && checkoutLine.get(verifyingChunkId) != null) {
-                output.addAll(checkoutLine.get(verifyingChunkId).getLines());
+                WorkUnit work = checkoutLine.get(verifyingChunkId);
+                output.addAll(work.getLines());
+                nextChunkPtr = work.chunk.getPtrEnd()-1;
+
                 verifyingChunkId++;
             }
             if (chunkProcessors.stream().allMatch(Future::isDone)) break;
@@ -62,10 +62,13 @@ public class LogReader {
         shouldStop.set(true);
         executorService.shutdown();
 
-        return LogResponse.builder().logs(output.stream().limit(take).collect(Collectors.toList())).build();
+        return LogResponse.builder()
+                .logs(output.stream().limit(take).collect(Collectors.toList()))
+                .nextPtr(nextChunkPtr)
+                .build();
     }
 
-    private Thread createFileChunkerThread(Path filePath, int chunkSize, BlockingQueue<Chunk> chunkQueue) {
+    private Thread createFileChunkerThread(Path filePath, Optional<Long> startPtr, int chunkSize, BlockingQueue<Chunk> chunkQueue) {
         return new Thread(() -> {
             try (RandomAccessFile file = new RandomAccessFile(filePath.toFile(), "r")) {
                 long ptr = file.length() - 1;
