@@ -71,7 +71,9 @@ public class LogReader {
     private Thread createFileChunkerThread(Path filePath, Optional<Long> startPtr, int chunkSize, BlockingQueue<Chunk> chunkQueue) {
         return new Thread(() -> {
             try (RandomAccessFile file = new RandomAccessFile(filePath.toFile(), "r")) {
-                long ptr = startPtr.isEmpty() ? file.length() - 1 : startPtr.get();
+                long ptr = (startPtr.isEmpty() || startPtr.get() >= file.length() || startPtr.get() <= 0) ?
+                        file.length() - 1 :
+                        startPtr.get();
                 long id = 0;
                 while (ptr >= 0) {
                     long end = Math.max(ptr - chunkSize, 0);
