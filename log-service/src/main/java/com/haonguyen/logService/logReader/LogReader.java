@@ -105,19 +105,12 @@ public class LogReader {
                                 if (chunk.isEOF()) {
                                     break;
                                 }
-
-                                List<String> lines = new ArrayList<>();
-                                long ptr = chunk.getPtrStart();
-                                while (ptr > chunk.getPtrEnd()) {
-                                    Lines ls = ReverseLineReader.readNLines(file, ptr, config.getBatchSize());
-                                    lines.addAll(ls.getLines()
-                                            .stream()
-                                            .filter(l -> rules.stream().allMatch(r -> r.isMatched(l)))
-                                            .collect(Collectors.toList()));
-                                    ptr = ls.getPtr();
-                                }
-
-                                WorkUnit work = WorkUnit.builder().lines(lines).chunk(chunk).build();
+                                WorkUnit work = WorkUnit.builder()
+                                        .lines(ReverseLineReader.readAllLines(
+                                                file,
+                                                chunk.getPtrStart(),
+                                                chunk.getPtrEnd()).getLines())
+                                        .chunk(chunk).build();
                                 checkoutLine.put(chunk.getId(), work);
                             } catch (InterruptedException e) {
                                 break;

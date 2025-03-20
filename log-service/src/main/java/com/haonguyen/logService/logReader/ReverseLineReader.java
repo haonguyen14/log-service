@@ -3,6 +3,7 @@ package com.haonguyen.logService.logReader;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,6 +44,16 @@ public class ReverseLineReader {
                 .lines(lines)
                 .ptr(ptr)
                 .build();
+    }
+
+    public static Lines readAllLines(RandomAccessFile file, long start, long end) throws IOException {
+        byte[] buffer = new byte[(int)(start-end)];
+        file.seek(end+1);
+        file.read(buffer);
+
+        String str = new String(buffer);
+        String[] lines = str.split("\n");
+        return Lines.builder().lines(Arrays.asList(lines)).ptr(end).build();
     }
 
     public static long snapOnNewline(RandomAccessFile file, long ptr) throws IOException {
