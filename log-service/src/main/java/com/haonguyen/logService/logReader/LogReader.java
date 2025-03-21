@@ -51,7 +51,7 @@ public class LogReader {
             if (checkoutLine.containsKey(verifyingChunkId) && checkoutLine.get(verifyingChunkId) != null) {
                 WorkUnit work = checkoutLine.get(verifyingChunkId);
                 output.addAll(work.getLines());
-                nextChunkPtr = work.chunk.getPtrEnd()-1;
+                nextChunkPtr = work.chunk.getPtrEnd() - 1;
 
                 verifyingChunkId++;
             }
@@ -106,9 +106,12 @@ public class LogReader {
                                 }
                                 WorkUnit work = WorkUnit.builder()
                                         .lines(ReverseLineReader.readAllLines(
-                                                file,
-                                                chunk.getPtrStart(),
-                                                chunk.getPtrEnd()).getLines())
+                                                        file,
+                                                        chunk.getPtrStart(),
+                                                        chunk.getPtrEnd())
+                                                .getLines()
+                                                .stream()
+                                                .filter(l -> rules.stream().allMatch(r -> r.isMatched(l))).collect(Collectors.toList()))
                                         .chunk(chunk).build();
                                 checkoutLine.put(chunk.getId(), work);
                             } catch (InterruptedException e) {
