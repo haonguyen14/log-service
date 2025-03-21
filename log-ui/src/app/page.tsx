@@ -1,10 +1,9 @@
 'use client'
 
-import { Button, Grid, Input, Sheet, Table } from "@mui/joy";
+import { Alert, Box, Button, Grid, Input, Sheet, Table } from "@mui/joy";
 import { MuiFileInput } from "mui-file-input";
 import React from "react";
 import styles from "./page.module.css";
-import jwt from 'jsonwebtoken';
 
 export default function Home() {
   const [privateKeyFile, setPrivateKeyFile] = React.useState<File | null>(null);
@@ -41,7 +40,7 @@ export default function Home() {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to get jwt token");
+      throw new Error("Failed to get logs. Error: " + response.status);
     }
 
     const respData = await response.json();
@@ -50,20 +49,44 @@ export default function Home() {
 
   const [path, setPath] = React.useState<string>("");
   const downloadLog = async (path: string, privateKey: File | null) => {
-    if (privateKey === null) throw Error("Invalid private key");
-    const token = await getJWTToken(privateKey);
+    try {
+      if (privateKey === null) throw Error("Invalid private key");
+      const token = await getJWTToken(privateKey);
 
-    const resp = await getLogs(path, nextPtr, token);
-    setLogs(resp["logs"]);
-    setNextPtr(resp["nextPtr"]);
+      const resp = await getLogs(path, nextPtr, token);
+      setLogs(resp["logs"]);
+      setNextPtr(resp["nextPtr"]);
+    } catch (e: unknown) {
+      if (e instanceof Error)
+        setAlert(e.message);
+      else
+        setAlert("unknown error occurred");
+    }
   }
 
   const [logs, setLogs] = React.useState<string[]>([]);
   const [nextPtr, setNextPtr] = React.useState<number | null>(null);
   const [contains, setContains] = React.useState<string>("");
+  const [alert, setAlert] = React.useState<string>("");
 
   return (
     <div className={styles.page}>
+      {alert.length > 0 && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, width: '100%' }}>
+          <Alert
+            variant="soft"
+            color="danger"
+            endDecorator={
+              <Button size="sm" variant="solid" color="danger" onClick={() => setAlert("")}>
+                Close
+              </Button>
+            }
+          >
+            {alert}
+          </Alert>
+        </Box>
+      )}
+
       <Grid container>
         <Grid item>
           <MuiFileInput value={privateKeyFile} onChange={handlePrivateKeyFileChange} placeholder="select private key" />
