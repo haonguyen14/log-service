@@ -30,7 +30,7 @@ public class LogReader {
             throw new InvalidFilePathException("Invalid File");
 
         BlockingQueue<Chunk> chunkQueue = new LinkedBlockingQueue<>(config.getQueueSize());
-        Thread chunker = createFileChunkerThread(filePath, ptr, config.getChunkSize(), chunkQueue);
+        createFileChunkerThread(filePath, ptr, config.getChunkSize(), chunkQueue).start();
 
         ConcurrentMap<Long, WorkUnit> checkoutLine = new ConcurrentHashMap<>();
         ExecutorService executorService = Executors.newFixedThreadPool(config.getNumThreads());
@@ -43,7 +43,6 @@ public class LogReader {
                 checkoutLine,
                 rules);
 
-        chunker.start();
 
         long verifyingChunkId = 0;
         long nextChunkPtr = -1;
@@ -63,7 +62,7 @@ public class LogReader {
         executorService.shutdown();
 
         return LogResponse.builder()
-                .logs(output.stream().limit(take).collect(Collectors.toList()))
+                .logs(output)
                 .nextPtr(nextChunkPtr)
                 .build();
     }
