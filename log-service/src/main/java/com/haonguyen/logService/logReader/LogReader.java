@@ -104,14 +104,16 @@ public class LogReader {
                                 if (chunk.isEOF()) {
                                     break;
                                 }
-                                WorkUnit work = WorkUnit.builder()
-                                        .lines(ReverseLineReader.readAllLines(
+                                List<String> output = ReverseLineReader.readAllLines(
                                                         file,
                                                         chunk.getPtrStart(),
                                                         chunk.getPtrEnd())
                                                 .getLines()
                                                 .stream()
-                                                .filter(l -> rules.stream().allMatch(r -> r.isMatched(l))).collect(Collectors.toList()))
+                                                .filter(l -> rules.stream().allMatch(r -> r.isMatched(l))).collect(Collectors.toList());
+                                Collections.reverse(output);
+                                WorkUnit work = WorkUnit.builder()
+                                        .lines(output)
                                         .chunk(chunk).build();
                                 checkoutLine.put(chunk.getId(), work);
                             } catch (InterruptedException e) {
